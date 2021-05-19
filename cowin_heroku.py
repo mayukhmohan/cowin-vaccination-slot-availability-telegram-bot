@@ -2,22 +2,34 @@ import requests
 import json
 import fake_useragent
 import logging
-import pandas as pd
 import os
+import pandas as pd
 from datetime import datetime
 from telegram.ext import Updater, CommandHandler, MessageHandler, Filters
 
-#pincode = "741101"
-#date = "19-05-2021"
-#district_id = "728"
-#URL_PIN_DATE = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/findByPin?pincode={}&date={}".format(pincode, date)
 logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
+district = pd.read_csv("district_mapping.csv")
+district_mapper = dict()
+state_mapper = dict()
+state_district_mapper = dict()
+SORRY_MSG = "Message was too long"
+
+
 PORT = int(os.environ.get('PORT', '8443'))
 TOKEN = "1779972424:AAGGyixrH_8cBQEbAqj6i6stgsrS7BYv7Ys"
 APP_NAME = "https://mayukhcowinbot.herokuapp.com/"
 
+
+def popuate():
+    for index, row in district.iterrows():
+        district_mapper[str(row['district name']).lower()] = row['district id']
+        state_mapper[str(row['state_name']).lower()] = row['state_id']
+        if str(row['state_name']).lower() in state_district_mapper.keys():
+            state_district_mapper[str(row['state_name']).lower()].append(str(row['district name']).lower())
+        else:
+            state_district_mapper[str(row['state_name']).lower()] = [str(row['district name']).lower()]
 
 def util(district_id, date):
     temp_user_agent = fake_useragent.UserAgent()
@@ -25,75 +37,118 @@ def util(district_id, date):
     URL_DIS_ID_DATE = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id={}&" \
                       "date={}".format(district_id, date)
     response = requests.get(URL_DIS_ID_DATE, headers=browser_header)
-    return json.dumps(response.json(), indent=4)
+    resp_json = response.json()["centers"]
+    if len(resp_json) == 0:
+        return "No Data Found"
+
+    results = []
+    for item in resp_json:
+        result = dict()
+        result['name'] = item['name']
+        result['address'] = item['address']
+        result['block'] = item['block_name']
+        result['pincode'] = item['pincode']
+        result['fee'] = item['fee_type']
+        result['avl'] = item['sessions'][0]['available_capacity']
+        result['min_age'] = item['sessions'][0]['min_age_limit']
+        result['vaccine'] = item['sessions'][0]['vaccine']
+        result['avl_1'] = item['sessions'][0]['available_capacity_dose1']
+        result['avl_2'] = item['sessions'][0]['available_capacity_dose2']
+        results.append(result)
+
+    return json.dumps({'results':results}, indent=4)
 
 
-
-# Define a few command handlers. These usually take the two arguments update and
-# context. Error handlers also receive the raised TelegramError object in error.
 def start(update, context):
-    """Send a message when the command /start is issued."""
     update.message.reply_text('Hi!')
 
 
+def getstates(update, context):
+    text = ""
+    for item in state_mapper.keys():
+        text += str(item) + "\n"
+    update.message.reply_text(text)
+
+
+def getdistricts(update, context):
+    state = " ".join(str(update.message.text).split(" ")[1:]).lower()
+    text = ""
+    for item in state_district_mapper[state]:
+        text += str(item) + "\n"
+    update.message.reply_text(text)
+
+
 def cowin(update, context):
-    """Send a message when the command /help is issued."""
-    request = str(update.message.text).split(" ")[-1]
-    date = str(str(datetime.now().day) + "-" + str(datetime.now().month) + "-" + str(datetime.now().year))
-    district_id = "728"
-    print(request, date, district_id)
+    district_name = " ".join(str(update.message.text).split(" ")[1:]).lower()
+    date = str(datetime.now().day) + "-" + str(datetime.now().month) + "-" + str(datetime.now().year)
+    district_id = district_mapper[district_name.lower()]
     msg = util(district_id, date)
-    update.message.reply_text(msg)
+    try:
+        update.message.reply_text(msg)
+    except:
+        msg = json.loads(msg)
+        for item in msg["results"]:
+            update.message.reply_text(item)
+        update.message.reply_text(SORRY_MSG)
+
+
+def cowin_date(update, context):
+    district_name = " ".join(str(update.message.text).split(" ")[1:-1]).lower()
+    date = str(update.message.text).split(" ")[-1]
+    date = str(date[:2]) + "-" + str(date[2:4]) + "-" + str(date[4:])
+    district_id = district_mapper[district_name.lower()]
+    msg = util(district_id, date)
+    try:
+        update.message.reply_text(msg)
+    except:
+        msg = json.loads(msg)
+        for item in msg["results"]:
+            update.message.reply_text(item)
+        update.message.reply_text(SORRY_MSG)
 
 
 def help(update, context):
-    text = "start -> check service is working\n" \
-           "help -> get all commands\n" \
-           "cowin <YOUR DISTRICT NAME> -> get Availability"
+    text = "/start -> check service is working\n" \
+           "/help -> get all commands\n" \
+           "/cowin <YOUR DISTRICT NAME> -> get Availability\n" \
+           "/states -> get all the state names\n" \
+           "/districts <YOUR STATE NAME> -> get all the district names\n" \
+           "/cowin_date <YOUR DISTRICT NAME> <DDMMYYYY> -> get availability on that day"
     update.message.reply_text(text)
 
 
 def echo(update, context):
-    """Echo the user message."""
     update.message.reply_text(update.message.text)
 
 
 def error(update, context):
-    """Log Errors caused by Updates."""
+    if str(context.error) == "Message is too long":
+        print("hi")
     logger.warning('Update "%s" caused error "%s"', update, context.error)
 
 
 def main():
-    """Start the bot."""
-    # Create the Updater and pass it your bot's token.
-    # Make sure to set use_context=True to use the new context based callbacks
-    # Post version 12 this will no longer be necessary
-    updater = Updater(TOKEN, use_context=True)
+    updater = Updater("1779972424:AAGGyixrH_8cBQEbAqj6i6stgsrS7BYv7Ys", use_context=True)
 
-    # Get the dispatcher to register handlers
     dp = updater.dispatcher
 
-    # on different commands - answer in Telegram
     dp.add_handler(CommandHandler("start", start))
     dp.add_handler(CommandHandler("cowin", cowin))
     dp.add_handler(CommandHandler("help", help))
+    dp.add_handler(CommandHandler("states", getstates))
+    dp.add_handler(CommandHandler("districts", getdistricts))
+    dp.add_handler(CommandHandler("cowin_date", cowin_date))
 
-    # on noncommand i.e message - echo the message on Telegram
     dp.add_handler(MessageHandler(Filters.text, echo))
 
-    # log all errors
     dp.add_error_handler(error)
 
-    # Start the Bot
     updater.start_webhook(listen="0.0.0.0",
                           port=PORT,
                           url_path=TOKEN)
-    # updater.bot.set_webhook(url=settings.WEBHOOK_URL)
+
     updater.bot.set_webhook(APP_NAME + TOKEN)
 
-    # Run the bot until you press Ctrl-C or the process receives SIGINT,
-    # SIGTERM or SIGABRT. This should be used most of the time, since
-    # start_polling() is non-blocking and will stop the bot gracefully.
     updater.idle()
 
 
