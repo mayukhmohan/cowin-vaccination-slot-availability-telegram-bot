@@ -1,7 +1,4 @@
 requests
-json
 fake-useragent
-logging
 pandas
-datetime
 python-telegram-bot
