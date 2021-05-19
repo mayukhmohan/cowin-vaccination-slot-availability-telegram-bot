@@ -17,7 +17,7 @@ state_district_mapper = dict()
 SORRY_MSG = "Message was too long"
 
 
-PORT = int(os.environ.get('PORT', '8443'))
+PORT = int(os.environ.get('PORT', '88'))
 TOKEN = "1779972424:AAGGyixrH_8cBQEbAqj6i6stgsrS7BYv7Ys"
 APP_NAME = "https://mayukhcowinbot.herokuapp.com/"
 
