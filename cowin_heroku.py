@@ -148,7 +148,6 @@ def main():
                           url_path=TOKEN,
                           webhook_url=APP_NAME+TOKEN)
 
-    #updater.bot.set_webhook(APP_NAME + TOKEN)
 
     updater.idle()
 
