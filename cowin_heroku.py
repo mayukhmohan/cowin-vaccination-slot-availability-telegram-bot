@@ -32,7 +32,7 @@ def popuate():
             state_district_mapper[str(row['state_name']).lower()] = [str(row['district name']).lower()]
 
 def util(district_id, date):
-    temp_user_agent = fake_useragent.UserAgent()
+    temp_user_agent = fake_useragent.UserAgent(verify_ssl=False)
     browser_header = {'User-Agent': temp_user_agent.random}
     URL_DIS_ID_DATE = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id={}&" \
                       "date={}".format(district_id, date)
