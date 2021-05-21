@@ -1,6 +1,7 @@
 import requests
 import json
 import time
+import pytz
 import fake_useragent
 import logging
 import threading
@@ -12,6 +13,7 @@ logging.basicConfig(format='%(asctime)s - %(name)s - %(levelname)s - %(message)s
                     level=logging.INFO)
 logger = logging.getLogger(__name__)
 district = pd.read_csv("district_mapping.csv")
+tz = pytz.timezone('Asia/Kolkata')
 district_mapper = dict()
 state_mapper = dict()
 state_district_mapper = dict()
@@ -19,14 +21,26 @@ SORRY_MSG = "Message is clumsy because data is too much for telegram!!"
 NO_DATA_MSG = "No Data Found"
 SUMMARY_NO_DATA = "Try again with another date and location"
 COWIN_RANGE_ITR_MSG = "For Date:="
+SERVER_REBOOT_MSG = "Server to be rebooted!!\n" \
+                    "No vaccination slot found at {} for age {}\n" \
+                    "Register again after 10 minutes"
 STOP_MSG = "Notification Stopped!!"
 ERROR_MSG_REG = "You have to register first!!"
+ERROR_MSG_DISTRICT = "ERROR!! in district name\n" \
+                  "TYPE-> /d <YOUR STATE NAME> to find correct name"
+ERROR_MSG_STATE = "ERROR!! in state name\n" \
+                  "TYPE-> /s to find correct name"
+ERROR_MSG_DATE = "ERROR!! Invalid date format\n" \
+                       "Enter as DDMMYYYY"
+ERROR_MSG_AGE = "ERROR!! Invalid age. 18 or 45 only allowed"
 THREAD_LIST = dict()
 STOP_FLAG = dict()
 NOTIFICATION_PERIOD = 10
 AGE_15 = 15
 AGE_45 = 45
 MSG_CHUNK_LENGTH = 50
+REBOOT_HOUR = 11
+REBOOT_MINUTE = 4
 
 NOTIFICATION_MSG = "You will be notified when slot is available at "
 
@@ -41,15 +55,19 @@ def popuate():
             state_district_mapper[str(row['state_name']).lower()] = [str(row['district name']).lower()]
 
 
-def util_registry(district_name, district_id, date, age, update, context):
+def util_registry(district_name, district_id, age, update, context):
     noti_msg = NOTIFICATION_MSG + district_name + " for age " + str(age)
     update.message.reply_text(noti_msg)
     id = update.message.from_user['id']
     temp_user_agent = fake_useragent.UserAgent(verify_ssl=False)
     browser_header = {'User-Agent': temp_user_agent.random}
-    URL_DIS_ID_DATE = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id={}&" \
-                      "date={}".format(district_id, date)
-    while not STOP_FLAG[id]:
+    summary = ""
+    while (not STOP_FLAG[id]):
+        if (datetime.now(tz).hour == REBOOT_HOUR) and (datetime.now(tz).minute == REBOOT_MINUTE):
+            break
+        date = str(datetime.now(tz).day) + "-" + str(datetime.now(tz).month) + "-" + str(datetime.now(tz).year)
+        URL_DIS_ID_DATE = "https://cdn-api.co-vin.in/api/v2/appointment/sessions/public/calendarByDistrict?district_id={}&" \
+                          "date={}".format(district_id, date)
         response = requests.get(URL_DIS_ID_DATE, headers=browser_header)
         resp_json = response.json()["centers"]
         if len(resp_json) == 0:
@@ -74,6 +92,8 @@ def util_registry(district_name, district_id, date, age, update, context):
                     update.message.reply_text("\n".join(summary[i:i+MSG_CHUNK_LENGTH]))
                 update.message.reply_text(SORRY_MSG)
         time.sleep(NOTIFICATION_PERIOD)
+    if summary == "" and (not STOP_FLAG[id]):
+        update.message.reply_text(SERVER_REBOOT_MSG.format(district_name, age))
 
 
 def util(district_id, date):
@@ -109,16 +129,18 @@ def util(district_id, date):
         for i in range(len(item['sessions'])):
             if int(result['itr'][i]['min_age']) == 45:
                 if int(result['itr'][i]['avl']) > 0:
-                    summary += "Slot is Available for 45yrs old at "
+                    summary += "Slot is Available for 45yrs old at " + result['name'] + ".\n"
+                    break
                 else:
-                    summary += "Slot was Available for 45yrs old at "
-                summary += result['name'] + ".\n"
+                    summary += "Slot was Available for 45yrs old at " + result['name'] + ".\n"
+                    break
             elif int(result['itr'][i]['min_age']) == 18:
                 if int(result['itr'][i]['avl']) > 0:
-                    summary += "Slot is Available for 18yrs old at "
+                    summary += "Slot is Available for 18yrs old at " + result['name'] + ".\n"
+                    break
                 else:
-                    summary += "Slot was Available for 18yrs old at "
-                summary += result['name'] + ".\n"
+                    summary += "Slot was Available for 18yrs old at " + result['name'] + ".\n"
+                    break
         results.append(result)
 
     summary += "\nCheck ^ for detailed info!!"
@@ -140,15 +162,24 @@ def getstates(update, context):
 def getdistricts(update, context):
     state = " ".join(str(update.message.text).split(" ")[1:]).lower()
     text = ""
-    for item in state_district_mapper[state]:
+    try:
+        districts = state_district_mapper[state]
+    except:
+        update.message.reply_text(ERROR_MSG_STATE)
+        return
+    for item in districts:
         text += str(item) + "\n"
     update.message.reply_text(text)
 
 
 def cowin(update, context):
     district_name = " ".join(str(update.message.text).split(" ")[1:]).lower()
-    date = str(datetime.now().day) + "-" + str(datetime.now().month) + "-" + str(datetime.now().year)
-    district_id = district_mapper[district_name.lower()]
+    date = str(datetime.now(tz).day) + "-" + str(datetime.now(tz).month) + "-" + str(datetime.now(tz).year)
+    try:
+        district_id = district_mapper[district_name.lower()]
+    except:
+        update.message.reply_text(ERROR_MSG_DISTRICT)
+        return
     msg, summary = util(district_id, date)
     try:
         update.message.reply_text(msg)
@@ -166,8 +197,16 @@ def cowin(update, context):
 def cowin_date(update, context):
     district_name = " ".join(str(update.message.text).split(" ")[1:-1]).lower()
     date = str(update.message.text).split(" ")[-1]
-    date = str(date[:2]) + "-" + str(date[2:4]) + "-" + str(date[4:])
-    district_id = district_mapper[district_name.lower()]
+    try:
+        date = str(date[:2]) + "-" + str(date[2:4]) + "-" + str(date[4:])
+    except:
+        update.message.reply_text(ERROR_MSG_DATE)
+        return
+    try:
+        district_id = district_mapper[district_name.lower()]
+    except:
+        update.message.reply_text(ERROR_MSG_DISTRICT)
+        return
     msg, summary = util(district_id, date)
     try:
         update.message.reply_text(msg)
@@ -185,9 +224,13 @@ def cowin_date(update, context):
 def cowin_date_range(update, context):
     district_name = " ".join(str(update.message.text).split(" ")[1:-1]).lower()
     date_range = int(str(update.message.text).split(" ")[-1])
-    district_id = district_mapper[district_name.lower()]
+    try:
+        district_id = district_mapper[district_name.lower()]
+    except:
+        update.message.reply_text(ERROR_MSG_DISTRICT)
+        return
     for i in range(date_range):
-        date = str(datetime.now().day + i) + "-" + str(datetime.now().month) + "-" + str(datetime.now().year)
+        date = str(datetime.now(tz).day + i) + "-" + str(datetime.now(tz).month) + "-" + str(datetime.now(tz).year)
         msg, summary = util(district_id, date)
         update.message.reply_text(COWIN_RANGE_ITR_MSG + date)
         try:
@@ -206,10 +249,11 @@ def cowin_date_range(update, context):
 def register(update, context):
     district_name = " ".join(str(update.message.text).split(" ")[1:-1]).lower()
     age = int(str(update.message.text).split(" ")[-1])
-    date = str(datetime.now().day) + "-" + str(datetime.now().month) + "-" + str(datetime.now().year)
+    if age != 18 and age != 45:
+        update.message.reply_text(ERROR_MSG_AGE)
+        return
     district_id = district_mapper[district_name.lower()]
-    # util_registry(district_id, age)
-    THREAD = threading.Thread(target=util_registry, args=(district_name, district_id, date, age, update, context, ))
+    THREAD = threading.Thread(target=util_registry, args=(district_name, district_id, age, update, context, ))
     THREAD.start()
     THREAD_LIST[update.message.from_user['id']] = THREAD
     STOP_FLAG[update.message.from_user['id']] = False
@@ -221,6 +265,8 @@ def stop(update, context):
     if user['id'] in THREAD_LIST.keys():
         STOP_FLAG[user['id']] = True
         THREAD_LIST[user['id']].join()
+        del THREAD_LIST[user['id']]
+        del STOP_FLAG[user['id']]
         update.message.reply_text(STOP_MSG)
     else:
         update.message.reply_text(ERROR_MSG_REG)
