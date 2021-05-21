@@ -252,7 +252,11 @@ def register(update, context):
     if age != 18 and age != 45:
         update.message.reply_text(ERROR_MSG_AGE)
         return
-    district_id = district_mapper[district_name.lower()]
+    try:
+        district_id = district_mapper[district_name.lower()]
+    except:
+        update.message.reply_text(ERROR_MSG_DISTRICT)
+        return
     THREAD = threading.Thread(target=util_registry, args=(district_name, district_id, age, update, context, ))
     THREAD.start()
     THREAD_LIST[update.message.from_user['id']] = THREAD
