@@ -18,7 +18,7 @@ SORRY_MSG = "Message was too long"
 
 
 PORT = int(os.environ.get('PORT', '88'))
-TOKEN = "1779972424:AAGGyixrH_8cBQEbAqj6i6stgsrS7BYv7Ys"
+TOKEN = "YOUR TOKEN"
 APP_NAME = "https://mayukhcowinbot.herokuapp.com/"
 
 
@@ -128,7 +128,7 @@ def error(update, context):
 
 
 def main():
-    updater = Updater("1779972424:AAGGyixrH_8cBQEbAqj6i6stgsrS7BYv7Ys", use_context=True)
+    updater = Updater("YOUR TOKEN", use_context=True)
 
     dp = updater.dispatcher
 
